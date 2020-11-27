@@ -97,7 +97,7 @@ class GraphCollector(Node, Collector):
         elif msg.mtype == MsgTypes.Datagram:
             datagram_start = time.time()
             self.store.update(msg.name, msg.heartbeat, self.eb_id(msg.identity), msg.version, msg.payload)
-            print(self.name,'recvfrom',msg.identity,'latency:',dt.datetime.now()-dt.datetime.fromtimestamp(msg.heartbeat.timestamp),'storeQlen:',len(self.store.builders['graph'].pending.keys()))
+            print(dt.datetime.now().strftime("%H:%M:%S"),self.name,'recvfrom',msg.identity,'latency:',dt.datetime.now()-dt.datetime.fromtimestamp(msg.heartbeat.timestamp),'storeQlen:',len(self.store.builders['graph'].pending.keys()))
             if self.store.ready(msg.name, msg.heartbeat):
                 try:
                     # prune entries older than the current heartbeat
