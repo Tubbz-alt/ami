@@ -10,7 +10,7 @@ from ami.worker import run_worker, parse_args
 from ami import LogConfig, Defaults
 from ami.comm import Ports, Colors, Node, Collector, TransitionBuilder, EventBuilder
 from ami.data import MsgTypes, Transitions
-
+import datetime as dt
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +97,7 @@ class GraphCollector(Node, Collector):
         elif msg.mtype == MsgTypes.Datagram:
             datagram_start = time.time()
             self.store.update(msg.name, msg.heartbeat, self.eb_id(msg.identity), msg.version, msg.payload)
+            print(self.name,'recvfrom',msg.identity,'latency:',dt.datetime.now()-dt.datetime.fromtimestamp(msg.heartbeat.timestamp),'storeQlen:',len(self.store.builders['graph'].pending.keys()))
             if self.store.ready(msg.name, msg.heartbeat):
                 try:
                     # prune entries older than the current heartbeat
