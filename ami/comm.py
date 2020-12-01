@@ -19,6 +19,7 @@ from ami.data import MsgTypes, Message, Transition, CollectorMessage, Datagram, 
     Heartbeat
 from enum import IntEnum
 import datetime as dt
+import threading
 
 
 logger = logging.getLogger(__name__)
@@ -336,18 +337,17 @@ class ZmqHandler:
         self.collector.connect(addr)
         self.serializer = Serializer()
 
-    def send(self, msg):
-        self.collector.send_serialized(msg, self.serializer, flags=zmq.NOBLOCK, copy=False)
+    def send(self, msg, **kwargs):
+        return self.collector.send_serialized(msg, self.serializer, flags=zmq.NOBLOCK, copy=False, **kwargs)
 
-    def message(self, mtype, identity, payload):
+    def message(self, mtype, identity, payload, **kwargs):
         msg = Message(mtype=mtype, identity=identity, payload=payload)
-        self.send(msg)
+        return self.send(msg, **kwargs)
 
-    def collector_message(self, identity, heartbeat, name, version, payload):
+    def collector_message(self, identity, heartbeat, name, version, payload, **kwargs):
         msg = CollectorMessage(mtype=MsgTypes.Datagram, identity=identity, heartbeat=heartbeat,
                                name=name, version=version, payload=payload)
-        print(dt.datetime.now().strftime("%H:%M:%S"),'sending heartbeat',heartbeat.identity)
-        self.send(msg)
+        return self.send(msg, **kwargs)
 
 
 class ResultStore(ZmqHandler):
@@ -385,7 +385,12 @@ class ResultStore(ZmqHandler):
 
     def collect(self, identity, heartbeat):
         for name, store in self.stores.items():
-            self.collector_message(identity, heartbeat, name, store.version, store.namespace)
+            start = time.time()
+            tracker = self.collector_message(identity, heartbeat, name, store.version, store.namespace, track=True)
+            while not tracker.done:
+                continue
+            stop = time.time()
+            print(f"{dt.datetime.now().strftime('%H:%M:%S')} worker{identity} heartbeat: {heartbeat.identity} time: {stop - start}" )
 
     def version(self, name):
         return self.stores[name].version
@@ -628,6 +633,7 @@ class EventBuilder(ZmqHandler):
     def completion(self, name, eb_key, identity, payload, drop):
         if not drop:
             self.collector_message(identity, eb_key, name, payload.version, payload.namespace)
+            print(dt.datetime.now().strftime("%H:%M:%S"),'sending heartbeat',eb_key.identity)
 
     def update(self, name, eb_key, eb_id, ver_key, data):
         if name not in self.builders:
@@ -861,6 +867,27 @@ class Node(abc.ABC):
         logger.info("%s: Started Prometheus client on port: %d", self.name, port)
         return port
 
+from zmq.utils.monitor import recv_monitor_message
+EVENT_MAP = {}
+print("Event names:")
+for name in dir(zmq):
+    if name.startswith('EVENT_'):
+        value = getattr(zmq, name)
+        print("%21s : %4i" % (name, value))
+        EVENT_MAP[value] = name
+
+
+def event_monitor(monitor):
+    while monitor.poll():
+        evt = recv_monitor_message(monitor)
+        evt.update({'description': EVENT_MAP[evt['event']]})
+        print("Event: {}".format(evt))
+        if evt['event'] == zmq.EVENT_MONITOR_STOPPED:
+            break
+    monitor.close()
+    print()
+    print("event monitor thread done!")
+
 
 class Collector(abc.ABC):
     """Abstract base class for collecting (via zeromq) results from many
@@ -887,7 +914,11 @@ class Collector(abc.ABC):
             self.ctx = ctx
         self.poller = zmq.Poller()
         self.collector = self.ctx.socket(zmq.PULL)
+        monitor = self.collector.get_monitor_socket()
+        t = threading.Thread(target=event_monitor, args=(monitor,))
+        t.start()
         self.collector.bind(addr)
+
         self.poller.register(self.collector, zmq.POLLIN)
         self.handlers = {}
         self.running = True
