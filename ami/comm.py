@@ -18,6 +18,7 @@ from ami.graphkit_wrapper import Graph
 from ami.data import MsgTypes, Message, Transition, CollectorMessage, Datagram, Serializer, Deserializer, \
     Heartbeat
 from enum import IntEnum
+import datetime as dt
 
 
 logger = logging.getLogger(__name__)
@@ -345,6 +346,7 @@ class ZmqHandler:
     def collector_message(self, identity, heartbeat, name, version, payload):
         msg = CollectorMessage(mtype=MsgTypes.Datagram, identity=identity, heartbeat=heartbeat,
                                name=name, version=version, payload=payload)
+        print(dt.datetime.now().strftime("%H:%M:%S"),'sending heartbeat',heartbeat.identity)
         self.send(msg)
 
 
